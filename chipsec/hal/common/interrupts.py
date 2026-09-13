@@ -129,8 +129,7 @@ class Interrupts(hal_base.HALBase):
                 # check for return status
                 ret_buf = self.cs.helper.read_io_port(buf_addr, 8)
             else:
-                logger().log_error(f'Unsupported ACPI Generic Address Space ID {invoc_reg.addrSpaceID} for the SMI '
-                                   f'invocation register; only System Memory (0) and System I/O (1) are implemented')
+                logger().log_error("Functionality is currently not implemented")
                 ret_buf = None
             return ret_buf
 

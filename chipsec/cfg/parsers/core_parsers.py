@@ -27,7 +27,6 @@ platform configuration files and populating the CHIPSEC configuration objects.
 import copy
 
 from chipsec.cfg.parsers.ip.iobar import IOBarConfig
-from chipsec.cfg.parsers.ip.hob import HOBConfig
 from chipsec.cfg.parsers.ip.io import IOConfig
 from chipsec.cfg.parsers.ip.memory import MemoryConfig
 from chipsec.cfg.parsers.ip.mmio_bar import MMIOBarConfig
@@ -125,8 +124,7 @@ class DevConfig(BaseConfigParser):
                 'io': self.handle_io,
                 'msr': self.handle_msr,
                 'mmiobar': self.handle_mmiobar,
-                'iobar': self.handle_iobar,
-                'hob': self.handle_hob}
+                'iobar': self.handle_iobar}
 
     def get_subcomponent_handlers(self):
         return {'mmiobar': self.handle_mmio_subcomponent,
@@ -279,9 +277,6 @@ class DevConfig(BaseConfigParser):
 
     def handle_iobar(self, et_node, stage_data):
         return self.parser_helper.handle_bars(et_node, stage_data, self.cfg.IO_BARS, IOBarConfig)
-
-    def handle_hob(self, et_node, stage_data):
-        return self._process_def(self.cfg.HOB, et_node, 'definition', stage_data, HOBConfig)
 
 
 class CoreConfigRegisters(BaseConfigParser):
@@ -514,10 +509,6 @@ class CoreConfigRegisters(BaseConfigParser):
                         elif reg_attr['scope'] == 'cores':
                             cores = self.cfg.CPU['cores']
                             threads_to_use = [cores[p][0] for p in cores]
-                        elif reg_attr['scope'] != 'thread':
-                            self.logger.log_warning(
-                                f"Unrecognized scope '{reg_attr['scope']}' for MSR {reg_name}. "
-                                "Expected 'package', 'cores' or 'thread'; defaulting to per-thread.")
                     if threads_to_use is None:
                         threads_to_use = range(self.cfg.CPU['threads'])
                     reg_obj = self.create_register_object(MSRRegisters, reg_attr, threads_to_use)
@@ -578,8 +569,6 @@ class CoreConfigRegisters(BaseConfigParser):
             parent = self._get_parent_name(stage_data)
             if attrs['register'] in self.cfg.REGISTERS[stage_data.vid_str][parent]:
                 regs.extend(self.cfg.REGISTERS[stage_data.vid_str][parent][attrs['register']])
-            if not regs:
-                self.logger.log_debug(f"[CONTROL] Register '{attrs['register']}' not found for control '{name}' in REGISTERS[{stage_data.vid_str}][{parent}]")
             attrs['register'] = self._make_reg_name(stage_data, attrs['register'], True)
             objs = []
             for reg in regs:

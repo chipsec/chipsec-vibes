@@ -128,26 +128,6 @@ class LinuxHelper(Helper):
             else:
                 a2 = f'a2=0x{phys_mem_access_prot}'
 
-        # Prefer modprobe, which resolves the module by name through the kernel's own
-        # search path. The file probing below only recognises 'chipsec.ko' and
-        # 'chipsec.ko.xz', so it cannot see a module built by DKMS on a distribution
-        # that compresses modules with zstd (Arch Linux installs chipsec.ko.zst), and
-        # insmod could not load a compressed module even if it found one. modprobe
-        # handles every compression format and succeeds harmlessly when the module is
-        # already loaded.
-        try:
-            subprocess.check_output(['modprobe', self.MODULE_NAME] + [p for p in (a1, a2) if p],
-                                    stderr=subprocess.STDOUT)
-        except Exception:
-            pass
-        else:
-            if os.path.exists(self.DEVICE_NAME):
-                os.chown(self.DEVICE_NAME, 0, 0)
-                os.chmod(self.DEVICE_NAME, 0o600)
-                logger().log_debug(f'Module {self.DEVICE_NAME} loaded successfully')
-                self.driverpath = f'(modprobe {self.MODULE_NAME})'
-                return
-
         driver_path = os.path.join(chipsec.library.file.get_main_dir(), 'chipsec', 'helper', 'linux', 'chipsec.ko')
         if not os.path.exists(driver_path):
             driver_path += '.xz'
@@ -296,10 +276,9 @@ class LinuxHelper(Helper):
         d = struct.pack(f'5{self._pack}', ((_PCI_DOM << 16) | bus), ((device << 16) | function), offset, size, 0)
         try:
             ret = self.ioctl(IOCTL_RDPCI, d)
-        except IOError as err:
+        except IOError:
             if logger().DEBUG:
-                logger().log_error(f'[helper] RDPCI ioctl failed reading {size:d} bytes from '
-                                   f'B:D.F {bus:02X}:{device:02X}.{function:X} offset 0x{offset:X}: {err}')
+                logger().log_error('IOError\n')
             return 0
         x = struct.unpack(f'5{self._pack}', ret)
         return x[4]
@@ -309,10 +288,9 @@ class LinuxHelper(Helper):
         d = struct.pack(f'5{self._pack}', ((_PCI_DOM << 16) | bus), ((device << 16) | function), offset, size, value)
         try:
             ret = self.ioctl(IOCTL_WRPCI, d)
-        except IOError as err:
+        except IOError:
             if logger().DEBUG:
-                logger().log_error(f'[helper] WRPCI ioctl failed writing 0x{value:X} ({size:d} bytes) to '
-                                   f'B:D.F {bus:02X}:{device:02X}.{function:X} offset 0x{offset:X}: {err}')
+                logger().log_error('IOError\n')
             return 0
         x = struct.unpack(f'5{self._pack}', ret)
         return x[4]
@@ -325,10 +303,9 @@ class LinuxHelper(Helper):
         out_length = 0
         try:
             out_buf = self.ioctl(IOCTL_LOAD_UCODE_PATCH, in_buf_final)
-        except IOError as err:
+        except IOError:
             if logger().DEBUG:
-                logger().log_error(f'[helper] LOAD_UCODE_PATCH ioctl failed loading a {len(ucode_update_buf):d}-byte '
-                                   f'microcode update on CPU thread {cpu_thread_id:d}: {err}')
+                logger().log_error('IOError IOCTL Load Patch\n')
             return False
 
         return True
@@ -521,17 +498,15 @@ class LinuxHelper(Helper):
             buffer = array.array('B', in_buf)
             try:
                 stat = self.ioctl(IOCTL_GET_EFIVAR, buffer)
-            except IOError as err:
+            except IOError:
                 if logger().DEBUG:
-                    logger().log_error(f'[helper] GET_EFIVAR ioctl failed re-reading UEFI variable '
-                                       f'({name}:{guid}) with buffer size {new_size:d}: {err}')
+                    logger().log_error('IOError IOCTL GetUEFIvar\n')
                 return (off, buf, hdr, b'', guid, attr)
             new_size, status = struct.unpack('2I', buffer[:8])
 
         if (new_size > data_size):
             if logger().DEBUG:
-                logger().log_error(f'[helper] Driver reported UEFI variable ({name}:{guid}) data size {new_size:d} '
-                                   f'which is larger than the requested buffer size {data_size:d}; discarding the data')
+                logger().log_error('Incorrect size returned from driver')
             return (off, buf, hdr, b'', guid, attr)
 
         if (status > 0):

@@ -232,9 +232,7 @@ def get_message() -> str:
 
 
 def is_all_value(value_list: list, value: Any) -> bool:
-    """Checks if all elements in a non-empty list are equal to a given value."""
-    if not value_list:
-        return False
+    """Checks if all elements in a list are equal to a given value"""
     return all(n == value for n in value_list)
 
 

@@ -23,9 +23,9 @@
 Main application logic and automation functions
 """
 
+# These are for debugging imports
 import sys
-sys.dont_write_bytecode = True
-
+import fnmatch
 import argparse
 import os
 import re
@@ -36,6 +36,7 @@ import traceback
 from collections import OrderedDict
 from typing import Dict, Any, Optional, Sequence, Tuple
 
+import chipsec.library.file
 import chipsec.module
 import chipsec.library.result_deltas
 from chipsec.library import defines
@@ -44,10 +45,10 @@ from chipsec import chipset
 from chipsec.helper.oshelper import helper
 from chipsec.library.logger import logger
 from chipsec.testcase import ExitCode, TestCase, ReturnCodeResults, LegacyResults
-from chipsec.library.display import print_banner, print_chipsec_info
+from chipsec.library.display import print_banner, print_banner_properties
 from chipsec.library.exceptions import UnknownChipsetError, OsHelperError
 from chipsec.library.options import Options
-from chipsec.library.module_helper import enumerate_modules, get_module_files, print_modules
+from chipsec.library.module_helper import enumerate_modules, print_modules
 
 try:
     import importlib
@@ -102,7 +103,7 @@ def parse_args(argv: Sequence[str]) -> Optional[Dict[str, Any]]:
     par = vars(parser.parse_args(argv))
     if par['help']:
         if par['_show_banner']:
-            print_banner(argv)
+            print_banner(argv, defines.get_version(), defines.get_message())
         parser.print_help()
         return None
     elif par['_list_modules']:
@@ -153,8 +154,7 @@ class ChipsecMain:
         """
         module = None
         if not self.MODPATH_RE.match(module_path):
-            self.logger.log_error(f'Invalid module path: "{module_path}". Expected a dotted Python module path '
-                                  f'(e.g. chipsec.modules.common.bios_wp) containing only letters, digits and underscores.')
+            self.logger.log_error(f'Invalid module path: {module_path}')
         else:
             try:
                 module = importlib.import_module(module_path)
@@ -245,8 +245,13 @@ class ChipsecMain:
     def load_modules_from_path(self, from_path, recursive=True):
         if self.logger.DEBUG:
             self.logger.log(f'[*] Path: {os.path.abspath(from_path)}')
-        for module_file in get_module_files(from_path, recursive=recursive, skip_sidekick=True):
-            self.load_module(module_file, self._module_argv)
+        for dirname, subdirs, mod_fnames in os.walk(os.path.abspath(from_path)):
+            if not recursive:
+                while len(subdirs) > 0:
+                    subdirs.pop()
+            for modx in mod_fnames:
+                if fnmatch.fnmatch(modx, '*.py') and not fnmatch.fnmatch(modx, '__init__.py') and not fnmatch.fnmatch(modx, '*sidekick.py'):
+                    self.load_module(os.path.join(dirname, modx), self._module_argv)
         self.Loaded_Modules.sort()
 
     def load_my_modules(self):
@@ -284,8 +289,7 @@ class ChipsecMain:
 
     def print_loaded_modules(self):
         if self.Loaded_Modules == []:
-            self.logger.log('No modules have been loaded. Check the module path/name passed with -m, '
-                            'the tag filters passed with -t, and that the platform was detected correctly.')
+            self.logger.log("No modules have been loaded")
         for (modx, _) in self.Loaded_Modules:
             self.logger.log(f'[+] loaded {modx}')
 
@@ -365,8 +369,7 @@ class ChipsecMain:
         if self._deltas_file is not None:
             prev_results = chipsec.library.result_deltas.get_json_results(self._deltas_file)
             if prev_results is None:
-                self.logger.log_error(f'Could not read previous results from "{self._deltas_file}" (missing or invalid JSON). '
-                                      f'Delta processing is disabled; displaying the standard results summary instead.')
+                self.logger.log_error("Delta processing disabled.  Displaying results summary.")
             else:
                 test_deltas = chipsec.library.result_deltas.compute_result_deltas(prev_results, results.get_results())
                 chipsec.library.result_deltas.display_deltas(test_deltas, self.no_time, t)
@@ -426,7 +429,7 @@ class ChipsecMain:
     def main(self) -> int:
 
         if self._show_banner:
-            print_banner(self.argv)
+            print_banner(self.argv, defines.get_version(), defines.get_message())
 
         for import_path in self.IMPORT_PATHS:
             sys.path.append(os.path.abspath(import_path))
@@ -436,10 +439,8 @@ class ChipsecMain:
         except UnknownChipsetError as msg:
             self.logger.log_error(f'Platform is not supported ({str(msg)}).')
             if self._ignore_platform:
-                self.logger.log_error('Platform detection could not match this system to a configuration in chipsec/cfg.')
-                self.logger.log_error('To force a CPU/platform, use: -p <platform_code>')
-                self.logger.log_error('To force a PCH, use: --pch <pch_code>')
-                self.logger.log_error('Valid platform/PCH codes can be found using `chipsec_main.py --help`')
+                self.logger.log_error('To specify a cpu please use -p command-line option')
+                self.logger.log_error('To specify a pch please use --pch command-line option\n')
                 self.logger.log_error('If the correct configuration is not loaded, results should not be trusted.')
                 if self.logger.DEBUG:
                     self.logger.log_bad(traceback.format_exc())
@@ -461,7 +462,7 @@ class ChipsecMain:
             return ExitCode.EXCEPTION
 
         if self._show_banner:
-            print_chipsec_info(self._cs)
+            print_banner_properties(self._cs, defines.os_version())
 
         self.logger.log(" ")
 

@@ -39,18 +39,6 @@ class ExitCode:
     NOTAPPLICABLE = 128
     ARCHIVED = 256
 
-    decode = {
-        OK: 'OK',
-        WARNING: 'Warning',
-        DEPRECATED: 'Deprecated',
-        FAIL: 'Fail',
-        ERROR: 'Error',
-        EXCEPTION: 'Exception',
-        INFORMATION: 'Information',
-        NOTAPPLICABLE: 'Not Applicable',
-        ARCHIVED: 'Archived',
-    }
-
     help_epilog = """\
   Exit Code
   ---------
@@ -66,7 +54,6 @@ class ExitCode:
       - Bit 7: NOT APPLICABLE  at least one module was not applicable for the platform
 
 """
-
 
 class TestCase:
     def __init__(self, name: str) -> None:
@@ -269,7 +256,7 @@ class LegacyResults(ChipsecResults):
                     logger().log(f'[CHIPSEC] Modules with {result:11}{len(summary[result]):d}:')
                     for mod in summary[result]:
                         logger().log_error(mod)
-            elif result == 'archived' and not summary[result]:
+            elif result == 'archived':
                 continue
             else:
                 logger().log(f'[CHIPSEC] Modules {result:16}{len(summary[result]):d}:')

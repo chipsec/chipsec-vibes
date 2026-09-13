@@ -86,6 +86,8 @@ class chipsecLogFormatter(logging.Formatter):
         self.infmt = fmt
 
     def format(self, record):
+        if record.args:
+            record.args = tuple()
         formatter = logging.Formatter(self.infmt)
         return formatter.format(record)
 
@@ -136,36 +138,16 @@ class chipsecStreamFormatter(logging.Formatter):
             color = 'PURPLE'
         else:
             color = 'WHITE'
-        override = getattr(record, 'chipsec_color', None)
-        if override is not None and override in self.colors:
-            color = override
+        if record.args:
+            if record.args[0] is not None and record.args[0] in self.colors:
+                color = record.args[0]
+            record.args = tuple()
         if color in self.colors:
             log_fmt = f'{self.colors[color]}{self.infmt}{self.colors["END"]}'
         else:
             log_fmt = self.infmt
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
-
-
-class SafeStreamHandler(logging.StreamHandler):
-    """
-    StreamHandler that degrades gracefully when the output stream can't encode Unicode.
-
-    This matters in UEFI Python environments where stdout is often ASCII-only.
-    """
-
-    def emit(self, record) -> None:
-        try:
-            super().emit(record)
-        except UnicodeEncodeError:
-            try:
-                msg = self.format(record)
-                enc = getattr(self.stream, 'encoding', None) or 'ascii'
-                safe_msg = msg.encode(enc, errors='backslashreplace').decode(enc, errors='ignore')
-                self.stream.write(safe_msg + self.terminator)
-                self.flush()
-            except Exception:
-                self.handleError(record)
 
 
 class Logger:
@@ -176,7 +158,7 @@ class Logger:
         self.logfile = None
         self.ALWAYS_FLUSH = False
         self.LOG_PATH = os.path.join(BASE_PATH, "logs")
-        self.logstream = SafeStreamHandler(sys.stdout)
+        self.logstream = logging.StreamHandler(sys.stdout)
         self.chipsecLogger = logging.getLogger(LOGGER_NAME)
         self.chipsecLogger.setLevel(logging.INFO)
         if not self.chipsecLogger.handlers:
@@ -191,9 +173,9 @@ class Logger:
         self.logstream.setFormatter(streamFormatter)
         self.logFormatter = chipsecLogFormatter('%(additional)s%(message)s')
 
-    def log(self, text: str, level: level = level.INFO, color: Optional[str] = None) -> None:
+    def log(self, text: str, level: level = level.INFO, color: Optional[str] = ...) -> None:
         """Sends plain text to logging."""
-        self.chipsecLogger.log(level.value, text, extra={'chipsec_color': color})
+        self.chipsecLogger.log(level.value, text, color)
 
     def log_verbose(self, text: str) -> None:  # Use log('text', level.VERBOSE)
         """Logs a Verbose message"""
@@ -241,7 +223,7 @@ class Logger:
             datestr = datetime.now().isoformat().replace(':','').replace('-','').split('.')[0]
             log_file_name = f'{prefix}{"-" if prefix else ""}{datestr}.log'
             log_path = os.path.join(self.LOG_PATH, log_file_name)
-            file_handler = logging.FileHandler(log_path, encoding='utf-8')
+            file_handler = logging.FileHandler(log_path)
             self.chipsecLogger.addHandler(file_handler)
             file_handler.setFormatter(self.logFormatter)
         else:
@@ -288,7 +270,7 @@ class Logger:
             # Open new log file and keep it opened
             try:
                 # creates FileHandler for log file
-                self.logfile = logging.FileHandler(filename=self.LOG_FILE_NAME, mode='a', encoding='utf-8')
+                self.logfile = logging.FileHandler(filename=self.LOG_FILE_NAME, mode='a')
             except Exception:
                 self.log(f'WARNING: Could not open log file: {self.LOG_FILE_NAME}')
             else:
