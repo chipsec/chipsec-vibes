@@ -183,11 +183,7 @@ package_data = {
     # Include any configuration file.
     '': ['*.ini', '*.cfg', '*.json'],
     'chipsec': ['*VERSION*', 'WARNING.txt', 'options/*.ini'],
-    # Vendor directories under cfg/ nest one level deeper than '<vendor>/*.xml'
-    # reaches (e.g. cfg/8086/TPM/tpm12.xml), and those subdirectories are not Python
-    # packages, so they are only installed if matched from here. Matching by depth
-    # rather than by vendor id also picks up vendors added later.
-    'chipsec.cfg': ['*.xml', '*.xsd', '*/*.xml', '*/*/*.xml'],
+    'chipsec.cfg': ['8086/*.xml', '1022/*.xml', '*.xml', '*.xsd'],
 }
 data_files = [('', ['chipsec-manual.pdf'])]
 install_requires = []
@@ -219,12 +215,7 @@ if platform.system().lower() == 'windows':
 
 elif platform.system().lower() == 'linux':
     package_data['chipsec_tools.compression'] = ['*']
-    # Relative to the install prefix, not absolute. A wheel is relocatable -- whoever
-    # installs it decides where it lands -- so an absolute destination cannot be
-    # expressed. Given one, the wheel build strips the leading separator and treats
-    # the remainder as an ordinary directory name, installing the manual to
-    # site-packages/usr/share/doc/chipsec/ instead of /usr/share/doc/chipsec/.
-    data_files = [(os.path.join('share', 'doc', 'chipsec'), ['chipsec-manual.pdf'])]
+    data_files = [(os.path.abspath(os.path.join(os.sep,'usr','share', 'doc','chipsec')), ['chipsec-manual.pdf'])]
     extra_kw = [
         Extension(
             'EfiCompressor',

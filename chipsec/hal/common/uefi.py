@@ -107,8 +107,7 @@ class UEFI(hal_base.HALBase):
 
     def read_EFI_variables(self, efi_var_store: Optional[bytes], authvars: bool) -> Dict[str, List['EfiVariableType']]:
         if efi_var_store is None:
-            logger().log_error('Cannot read EFI variables: the NVRAM/variable store buffer is empty. '
-                               'The SPI/ROM region may not have been read successfully.')
+            logger().log_error('efi_var_store is None')
             return {}
         variables: Dict[str, List[EfiVariableType]] = EFI_VAR_DICT[self._FWType]['func_getefivariables'](efi_var_store)
         if logger().UTIL_TRACE:
@@ -261,11 +260,7 @@ class UEFI(hal_base.HALBase):
         pa = smram_base - CHUNK_SZ
         isFound = False
 
-        try:
-            (tseg_base, tseg_limit, _) = self.cs.hals.cpu.get_TSEG()
-        except Exception as err:
-            logger().log_hal(f'[uefi] Unable to determine TSEG region, scanning all memory. Error: {err}')
-            tseg_base = tseg_limit = 0
+        (tseg_base, tseg_limit, _) = self.cs.hals.cpu.get_TSEG()
 
         while pa > CHUNK_SZ:
             if (pa <= tseg_limit) and (pa >= tseg_base):

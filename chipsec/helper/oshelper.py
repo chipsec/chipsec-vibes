@@ -91,7 +91,11 @@ class OsHelper:
         if self.is_linux():
             ret = self.get_helper('linuxhelper')
         elif self.is_windows():
-            ret = self.get_helper('windowshelper')
+            ret = self.get_helper('atsziohelper')
+            if ret is None:
+                ret = self.get_helper('winring0helper')
+            if ret is None:
+                ret = self.get_helper('windowshelper')
         elif self.is_efi():
             ret = self.get_helper('efihelper')
         elif self.is_dal():

@@ -100,8 +100,7 @@ class sgx_check(BaseModule):
                     sgx_cpu_support = True
                 else:
                     self.logger.log_verbose(f'[*]CPU{tid:d}: does not support SGX')
-            if not sgx_cpu_support:
-                self.logger.log_important('SGX not supported.  Skipping module.')
+                    self.logger.log_important('SGX not supported.  Skipping module.')
 
         return sgx_cpu_support
 

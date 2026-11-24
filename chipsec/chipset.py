@@ -24,7 +24,7 @@ Contains platform identification functions
 import errno
 import traceback
 import json
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Type, Optional
 
 from chipsec.helper.oshelper import helper as os_helper
 from chipsec.helper.basehelper import Helper
@@ -35,7 +35,7 @@ from chipsec.library.options import Options
 from chipsec.library.exceptions import UnknownChipsetError, OsHelperError
 from chipsec.library.logger import logger
 from chipsec.library.defines import ARCH_VID
-from chipsec.library.register import Register
+from chipsec.library.register import Register, RegData
 from chipsec.library.lock import Lock
 from chipsec.library.control import Control
 from chipsec.library.device import Device
@@ -147,8 +147,6 @@ class Chipset:
         self.load_config = load_config
         _unknown_proc = True
         _unknown_pch = True
-        # The unknown flags only carry meaning when detection actually ran
-        detection_performed = load_config and not ignore_platform
 
         # Platform detection
         cpuid = 0
@@ -190,16 +188,14 @@ class Chipset:
                         self.logger.log_error(msg[-1])
                         raise_unknown_platform = True
                     else:
-                        self.logger.log(f'[!]       {platform_msg}. No matching CPU configuration was found in '
-                                        f'chipsec/cfg, so no platform configuration will be loaded and no registers '
-                                        f'will be defined. Use -p <platform_code> to select a specific platform.')
+                        self.logger.log(f'[!]       {msg}; Using Default.')
             # Don't initialize config if platform is unknown
             if not _unknown_proc:
                 self.Cfg.load_platform_config()
                 # Load Bus numbers for this platform.
                 if self.logger.DEBUG:
                     self.logger.log("[*] Discovering Bus Configuration:")
-            if _unknown_pch and detection_performed:
+            if _unknown_pch:
                 pch_msg = (f'Unknown PCH: VID = 0x{self.Cfg.pch_vid:04X}, DID = 0x{self.Cfg.pch_did:04X}, '
                            f'RID = 0x{self.Cfg.pch_rid:02X}')
                 msg.append(pch_msg)
@@ -208,18 +204,14 @@ class Chipset:
                     self.logger.log_error(error_msg)
                     raise_unknown_platform = True
                 else:
-                    self.logger.log(f'[!]       {pch_msg}. No matching PCH configuration was found in chipsec/cfg, '
-                                    f'so PCH registers will not be defined. '
-                                    f'Use --pch <pch_code> to select a specific PCH.')
+                    self.logger.log(f'[!]       {msg[-1]}; Using Default.')
 
         verbose_condition = (start_helper and ((self.logger.VERBOSE) or
-                                               (detection_performed and (_unknown_pch or _unknown_proc))))
+                                               (load_config and (_unknown_pch or _unknown_proc))))
         if verbose_condition:
-            pcilib.print_pci_devices(self.hals.pci.enumerate_devices(refresh=False))
-        if detection_performed and (_unknown_pch or _unknown_proc):
-            unknown_parts = ', '.join(p for p, unknown in (('CPU', _unknown_proc), ('PCH', _unknown_pch)) if unknown)
-            msg.append(f'Unrecognized {unknown_parts}: register definitions may not match this system, '
-                       f'so module results should not be trusted.')
+            pcilib.print_pci_devices(self.hals.pci.enumerate_devices())
+        if _unknown_pch or _unknown_proc:
+            msg.append('Results from this system may be incorrect.')
             self.logger.log(f'[!]            {msg[-1]}')
         if raise_unknown_platform:
             raise UnknownChipsetError('\n'.join(msg))
@@ -281,12 +273,10 @@ class Chipset:
     def destroy_helper(self):
         """Clean up and destroy the current hardware helper."""
         if not self.helper.stop():
-            self.logger.log_warning(f'Failed to stop OS helper "{self.helper.name}". '
-                                    f'The CHIPSEC driver/service may still be loaded on this system.')
+            self.logger.log_warning("failed to stop OS helper")
         else:
             if not self.helper.delete():
-                self.logger.log_warning(f'Failed to unload/delete OS helper "{self.helper.name}". '
-                                        f'The CHIPSEC driver may need to be removed manually.')
+                self.logger.log_warning("failed to delete OS helper")
 
     def is_core(self):
         """Check if platform is Core processor family."""
@@ -341,29 +331,19 @@ class Chipset:
             self.set_log_state((False, False, False))
 
         reuse_scan = self.options.get_section_data('PCI_Enum', 'reuse_platform_detection', None)
-        enum_devices_filename = None
-        if reuse_scan:
-            enum_devices_filename = self.options.get_section_data('PCI_Enum', 'enum_devices_filename', None)
-            if not enum_devices_filename:
-                self.logger.log_debug('[*] PCI_Enum.reuse_platform_detection is enabled but '
-                                      'PCI_Enum.enum_devices_filename is not set. Falling back to a live PCI scan.')
-                reuse_scan = False
         if reuse_scan:
             try:
-                with open(enum_devices_filename) as enum_devices_file:
-                    enum_devices = json.load(enum_devices_file)
-            except (OSError, ValueError) as cache_err:
-                self.logger.log_debug(f'[*] Unable to load cached PCI configuration from '
-                                      f'"{enum_devices_filename}" ({cache_err}). Falling back to a live PCI scan.')
+                enum_devices_filename = self.options.get_section_data('PCI_Enum', 'enum_devices_filename', None)
+                enum_devices = json.load(open(enum_devices_filename))
+            except (IOError, json.JSONDecodeError):
+                self.logger.log_debug('[*] Unable to load cached PCI configuration.')
         if not enum_devices:
             try:
                 enum_devices = self.hals.pci.enumerate_devices()
                 if reuse_scan:
-                    with open(enum_devices_filename, 'w') as enum_devices_file:
-                        json.dump(enum_devices, enum_devices_file)
-            except Exception as enum_err:
-                self.logger.log_debug(f'[*] PCI device enumeration failed ({type(enum_err).__name__}: {enum_err}). '
-                                      f'Platform detection and bus discovery will be incomplete.')
+                    json.dump(enum_devices, open(enum_devices_filename, 'w'))
+            except Exception:
+                self.logger.log_debug('[*] Unable to enumerate PCI devices.')
                 enum_devices = []
         if QUIET_PCI_ENUM:
             self.set_log_state(old_log_state)
@@ -383,6 +363,40 @@ class Chipset:
         self.logger.log_debug('[*] Gathering CPU Topology..')
         topology = self.hals.cpu.get_cpu_topology()
         self.Cfg.set_topology(topology)
+
+    def is_all_value(self, regdata: Type[RegData], value: int, mask: Optional[int] = None) -> bool:
+        """Check if all register data values match the specified value.
+
+        Args:
+            regdata: Register data to check
+            value: Value to compare against
+            mask: Optional mask to apply before comparison
+
+        Returns:
+            bool: True if all values match
+        """
+        if mask is None:
+            return all(n.value == value for n in regdata)
+        else:
+            newvalue = value & mask
+            return all((n.value & mask) == newvalue for n in regdata)
+
+    def is_any_value(self, regdata: Type[RegData], value: int, mask: Optional[int] = None) -> bool:
+        """Check if any register data values match the specified value.
+
+        Args:
+            regdata: Register data to check
+            value: Value to compare against
+            mask: Optional mask to apply before comparison
+
+        Returns:
+            bool: True if any values match
+        """
+        if mask is None:
+            return any(n.value == value for n in regdata)
+        else:
+            newvalue = value & mask
+            return any((n.value & mask) == newvalue for n in regdata)
 
     # ###########################################################################
     # Scoping functions
@@ -414,23 +428,20 @@ class Chipset:
 
     def _get_driver_firmware_info(self) -> Dict[str, Optional[str]]:
         info = {'vendor': None, 'product': None, 'version': None, 'type': None}
-        try:
-            smbios = SMBIOS(self)
-            if not smbios.find_smbios_table():
-                return info
+        smbios = SMBIOS(self)
+        if not smbios.find_smbios_table():
+            return info
 
-            bios_entries = smbios.get_decoded_structs(SMBIOS_BIOS_INFO_ENTRY_ID)
-            if bios_entries:
-                bios_info = bios_entries[0]
-                info['vendor'] = self._get_smbios_string(bios_info.vendor_str, bios_info.strings)
-                info['version'] = self._get_smbios_string(bios_info.version_str, bios_info.strings)
+        bios_entries = smbios.get_decoded_structs(SMBIOS_BIOS_INFO_ENTRY_ID)
+        if bios_entries:
+            bios_info = bios_entries[0]
+            info['vendor'] = self._get_smbios_string(bios_info.vendor_str, bios_info.strings)
+            info['version'] = self._get_smbios_string(bios_info.version_str, bios_info.strings)
 
-            system_entries = smbios.get_decoded_structs(SMBIOS_SYSTEM_INFO_ENTRY_ID)
-            if system_entries:
-                system_info = system_entries[0]
-                info['product'] = self._get_smbios_string(system_info.product_str, system_info.strings)
-        except Exception as err:
-            self.logger.log_hal(f'[chipset] Unable to read firmware info from SMBIOS. Error: {err}')
+        system_entries = smbios.get_decoded_structs(SMBIOS_SYSTEM_INFO_ENTRY_ID)
+        if system_entries:
+            system_info = system_entries[0]
+            info['product'] = self._get_smbios_string(system_info.product_str, system_info.strings)
 
         try:
             found, _, ect, _ = self.hals.uefi.find_EFI_Configuration_Table()

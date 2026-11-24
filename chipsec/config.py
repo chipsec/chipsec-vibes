@@ -126,18 +126,15 @@ class PlatformDetector:
 
             if not possible_skus:
                 self.logger.log_warning(
-                    f'Enumerated host bridge (VID:DID {detect_val}) does not match any '
-                    f'platform definition in chipsec/cfg. Treating platform as Unknown; '
-                    f'reported system info and register definitions may be inaccurate.'
+                    'Enumerated Platform PCI DID not found in XML Configs. '
+                    'System info may not be 100% accurate.'
                 )
                 return self._get_unknown_platform(dev000)
 
             if len(possible_skus) > 1:
-                sku_codes = ', '.join(sku.get('code', '?') for sku in possible_skus)
                 self.logger.log_warning(
-                    f'Detection value {detect_val} matched multiple platform SKUs '
-                    f'({sku_codes}); using the first match '
-                    f'({possible_skus[0].get("code", "?")}). Use -p to select explicitly.'
+                    'Multiple SKUs found for detection value, '
+                    'using first in the list'
                 )
 
             return possible_skus[0]
@@ -260,7 +257,7 @@ class ScopeManager:
     def __init__(self):
         self.parent_keys = [
             'CONFIG_PCI_RAW', 'CONFIG_PCI', 'MEMORY_RANGES', 'MM_MSGBUS',
-            'MSGBUS', 'IO', 'MSR', 'MMIO_BARS', 'IO_BARS', 'HOB'
+            'MSGBUS', 'IO', 'MSR', 'MMIO_BARS', 'IO_BARS'
         ]
         self.child_keys = [
             'IMA_REGISTERS', 'REGISTERS', 'CONTROLS', 'LOCKS', 'LOCKEDBY'
@@ -554,28 +551,21 @@ class Cfg:
         """Check if PCH is required for this platform."""
         return bool(self.platform_info.req_pch)
 
-    def is_pch_detected(self) -> bool:
-        """Check if PCH is detected for this platform."""
-        return bool(self.pch_info.code != CHIPSET_CODE_UNKNOWN)
-    
     def print_platform_info(self) -> None:
         """Print platform information."""
-        self.logger.log(f'[CHIPSEC] Mfg ID  : {self.cpu_info.mfgid}')
-        self.logger.log(f'[CHIPSEC] Platform: {self.platform_info.longname}')
-        self.logger.log(f'[CHIPSEC]    CPUID: {self.cpu_info.cpuid:X}')
-        self.logger.log(f'[CHIPSEC]      VID: {self.platform_info.vid:04X}')
-        self.logger.log(f'[CHIPSEC]      DID: {self.platform_info.did:04X}')
-        self.logger.log(f'[CHIPSEC]      RID: {self.platform_info.rid:02X}')
+        self.logger.log(f'Mfg ID  : {self.cpu_info.mfgid}')
+        self.logger.log(f'Platform: {self.platform_info.longname}')
+        self.logger.log(f'\tCPUID: {self.cpu_info.cpuid:X}')
+        self.logger.log(f'\tVID: {self.platform_info.vid:04X}')
+        self.logger.log(f'\tDID: {self.platform_info.did:04X}')
+        self.logger.log(f'\tRID: {self.platform_info.rid:02X}')
 
     def print_pch_info(self) -> None:
         """Print PCH information."""
-        if not self.is_pch_detected():
-            self.logger.log('[CHIPSEC] PCH     : Not detected')
-            return
-        self.logger.log(f'[CHIPSEC] PCH     : {self.pch_info.longname}')
-        self.logger.log(f'[CHIPSEC]      VID: {self.pch_info.vid:04X}')
-        self.logger.log(f'[CHIPSEC]      DID: {self.pch_info.did:04X}')
-        self.logger.log(f'[CHIPSEC]      RID: {self.pch_info.rid:02X}')
+        self.logger.log(f'Platform: {self.pch_info.longname}')
+        self.logger.log(f'\tVID: {self.pch_info.vid:04X}')
+        self.logger.log(f'\tDID: {self.pch_info.did:04X}')
+        self.logger.log(f'\tRID: {self.pch_info.rid:02X}')
 
     def print_supported_chipsets(self) -> None:
         """Print supported chipsets/platforms."""
@@ -709,16 +699,12 @@ class Cfg:
             return sku
 
         if possible_skus and detect_val:
-            candidates = [sku for did_map in possible_skus.values()
-                          for sku_list in did_map.values()
-                          for sku in sku_list]
-            if len(candidates) > 1:
+            if len(possible_skus) > 1:
                 self.logger.log_warning(
-                    f'Detection value {detect_val} matched multiple platform SKUs '
-                    f'({len(candidates)} candidates); using the first match. '
-                    f'Use -p to select a platform explicitly.'
+                    'Multiple SKUs found for detection value, '
+                    'using first in the list'
                 )
-            sku = candidates[0]
+            sku = possible_skus.popitem()[1].popitem()[1].pop()
             sku['longname'] = f"{sku['code']} Generic"
             return sku
         return None
@@ -735,9 +721,8 @@ class Cfg:
                     did_str in self.CONFIG_PCI_RAW[vid_str]):
                     return did
         self.logger.log_warning(
-            f'None of the DIDs defined for platform "{sku.get("code", "?")}" (VID {vid_str}) '
-            f'were found in the enumerated PCI data. Using DID 0xFFFF as a placeholder; '
-            f'reported system info may not be accurate.'
+            'Enumerated Platform PCI DID not found in XML Configs. '
+            'System info may not be 100% accurate.'
         )
         return 0xFFFF
 
@@ -761,7 +746,7 @@ class Cfg:
         for fxml in load_list:
             self.logger.log_debug(f'[*] Loading {stage_str} config data: [{fxml.dev_name}] - {fxml.xml_file}')
             if not os.path.isfile(fxml.xml_file):
-                self.logger.log_debug(f'[-] Skipping {stage_str} config for [{fxml.dev_name}]: file not found: {fxml.xml_file}')
+                self.logger.log_debug(f'[-] File not found: {fxml.xml_file}')
                 continue
             for config_root in self._get_config_iter(fxml):
                 # Use all handlers for this stage unless the config explicitly selects one
@@ -800,18 +785,17 @@ class Cfg:
             try:
                 module = importlib.import_module(parser_name)
             except Exception as err:
-                self.logger.log_debug(f'[-] Failed to import config parser {parser_name}: '
-                                      f'{type(err).__name__}: {err}. Configuration handled by this parser will be skipped.')
+                self.logger.log_debug(f'[*] Failed to import {parser_name}')
+                self.logger.log_debug(err)
                 continue
             if not hasattr(module, 'parsers'):
-                self.logger.log_debug(f'[-] Config parser {parser} does not define a "parsers" variable; skipping it.')
+                self.logger.log_debug(f'[*] Missing parsers variable: {parser}')
                 continue
             for obj in module.parsers:
                 try:
                     parser_obj = obj(self)
-                except Exception as err:
-                    self.logger.log_debug(f'[-] Failed to instantiate parser class {getattr(obj, "__name__", obj)} '
-                                          f'from {parser}: {type(err).__name__}: {err}')
+                except Exception:
+                    self.logger.log_debug(f'[*] Failed to create object: {parser}')
                     continue
                 parser_obj.startup()
                 self.parsers.append(parser_obj)

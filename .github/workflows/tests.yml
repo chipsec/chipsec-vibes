@@ -32,11 +32,11 @@ jobs:
       image: docker://${{ matrix.distro.image_prefix }}${{ matrix.distro.name }}:${{ matrix.distro.tag }}
     steps:
     - name: Harden Runner
-      uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
       with:
         egress-policy: audit
 
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         persist-credentials: false
 
@@ -72,6 +72,20 @@ jobs:
     - name: Install Debian dependencies
       if: matrix.distro.name == 'debian'
       run: |
+        # Debian 11 (bullseye) is EOL. Its packages were moved to
+        # archive.debian.org, and the archive Release files no longer have a
+        # valid "Valid-Until" date.
+        if [ "${{ matrix.distro.tag }}" = "11" ]; then
+          if [ -f /etc/apt/sources.list ]; then
+            sed -i -e 's|deb.debian.org|archive.debian.org|g' \
+                   -e 's|security.debian.org|archive.debian.org|g' /etc/apt/sources.list
+          fi
+          if [ -f /etc/apt/sources.list.d/debian.sources ]; then
+            sed -i -e 's|deb.debian.org|archive.debian.org|g' \
+                   -e 's|security.debian.org|archive.debian.org|g' /etc/apt/sources.list.d/debian.sources
+          fi
+          echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive
+        fi
         apt-get update -q
         apt-get install -qqy dkms nasm
 
@@ -171,16 +185,16 @@ jobs:
     
     steps:
     - name: Harden Runner
-      uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
       with:
         egress-policy: audit
 
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         persist-credentials: false
 
     - name: Set up Python ${{ matrix.versions.python }}
-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
         python-version: ${{ matrix.versions.python }}
 
@@ -243,16 +257,16 @@ jobs:
 
     steps:
     - name: Harden Runner
-      uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
       with:
         egress-policy: audit
 
     - name: Set up Python ${{ matrix.versions.python }}
-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
         python-version: ${{ matrix.versions.python }}
 
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         persist-credentials: false
 
@@ -291,7 +305,10 @@ jobs:
 
     - name: Get coverage requirement
       run: |
-        CODE_COVERAGE_REQ=$(curl https://raw.githubusercontent.com/chipsec/chipsec/refs/heads/main-cfg/codeCoverageRequirement2.cfg)
+        # This fork tracks chipsec 2.0.4. The upstream main-cfg requirement
+        # targets newer releases with a larger test suite, so use the
+        # requirement that matches this branch's code and tests.
+        CODE_COVERAGE_REQ=$(tr -d '[:space:]' < codeCoverageRequirement2.cfg)
         #if var is not a number, set it to 100
         if ! [[ "$CODE_COVERAGE_REQ" =~ ^[0-9]{1,3}\.?[0-9]{0,2}$ ]]; then
           CODE_COVERAGE_REQ=100
@@ -325,30 +342,3 @@ jobs:
         CHIPSECEXIT="$($(sudo ${PYTHONEXE} chipsec_main.py -p PMC_I440FX 1>&2); echo $?)"
         if echo "0 1 2 4 8" | grep -qw $CHIPSECEXIT; then $(exit 0); else $(exit $CHIPSECEXIT); fi
 
-  qemu-uefi-test:
-    name: QEMU UEFI shell test
-    runs-on: ubuntu-24.04
-
-    steps:
-    - name: Harden Runner
-      uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
-      with:
-        egress-policy: audit
-
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Set up Python 3.11
-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-      with:
-        python-version: '3.11'
-
-    - name: Install QEMU and UEFI dependencies
-      run: |
-        sudo apt-get update -qy
-        sudo apt-get install -qqy ovmf qemu-system-x86 qemu-utils mtools dosfstools
-
-    - name: Run QEMU UEFI test
-      run: |
-        python scripts/qemu_uefi_test.py

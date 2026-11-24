@@ -130,12 +130,10 @@ class CONTROLHelper(BaseConfigHelper):
             True if field is available, False otherwise
         """
         try:
-            # Prefer the register's own field lookup when available.
-            if hasattr(self.__reg, 'has_field'):
-                return bool(self.__reg.has_field(self.field))
-            if hasattr(self.__reg, 'fields'):
-                return self.field in self.__reg.fields
-            # If we can't determine availability, assume it's available.
+            # Try to check if the field exists in the register
+            if hasattr(self.__reg, 'fields') and self.field in self.__reg.fields:
+                return True
+            # If we can't determine availability, assume it's available
             return True
         except Exception:
             return False
@@ -150,10 +148,10 @@ class CONTROLHelper(BaseConfigHelper):
         Raises:
             ControlHelperError: If read operation fails
         """
-        if not self.is_field_available():
-            raise ControlHelperError(f"Field '{self.field}' not available in register '{self.get_register_name()}'")
-
         try:
+            if not self.is_field_available():
+                raise ControlHelperError(f"Field '{self.field}' not available in register '{self.get_register_name()}'")
+
             self.value = self.__reg.read_field(self.field)
             return self.value
         except Exception as e:
@@ -169,10 +167,10 @@ class CONTROLHelper(BaseConfigHelper):
         Raises:
             ControlHelperError: If write operation fails
         """
-        if not self.is_field_available():
-            raise ControlHelperError(f"Field '{self.field}' not available in register '{self.get_register_name()}'")
-
         try:
+            if not self.is_field_available():
+                raise ControlHelperError(f"Field '{self.field}' not available in register '{self.get_register_name()}'")
+
             self.__reg.write_field(self.field, value)
             self.value = value
         except Exception as e:

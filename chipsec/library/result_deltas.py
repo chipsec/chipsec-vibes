@@ -30,12 +30,12 @@ from chipsec.library.defines import bytestostring
 
 def get_json_results(json_file: str) -> Any:
     file_data = chipsec.library.file.read_file(json_file)
-    if not file_data:
+    if file_data == 0:
         return None
     try:
         json_data = json.loads(bytestostring(file_data))
-    except Exception as err:
-        logger().log_error(f'Could not parse "{json_file}" as CHIPSEC JSON results: {type(err).__name__}: {err}')
+    except Exception:
+        logger().log_error(f'Unable to load JSON file: {json_file}')
         return None
     return json_data
 
